@@ -126,6 +126,737 @@
     min-width:96px; height:96px; display:flex; align-items:center; justify-content:center;
     border:2.5px dashed rgba(255,255,255,0.35); border-radius:18px;
     background:rgba(255,255,255,0.06);
+  }
+  .slot[data-filled="1"]{ border-style:solid; border-color:var(--accent); background:rgba(52,229,184,0.10); }
+  .slot.slot-hover{
+    border-style:solid; border-color:var(--accent); background:rgba(52,229,184,0.24);
+    transform:scale(1.10); box-shadow:0 0 0 4px rgba(52,229,184,0.35), 0 8px 20px rgba(0,0,0,0.3);
+  }
+  .slot.slot-invalid{
+    border-color:#EF4444; background:rgba(239,68,68,0.16); transform:scale(1.04);
+  }
+  .slot{ transition: border-color .12s, background .12s, transform .12s, box-shadow .12s; }
+
+  /* ---------- Word tray ---------- */
+  #tray{
+    position:fixed; bottom:22px; left:50%; transform:translateX(-50%); z-index:15;
+    display:flex; gap:14px; flex-wrap:wrap; justify-content:center; max-width:96vw; padding:10px;
+  }
+
+  .word-card{
+    width:96px; height:96px; border-radius:18px; cursor:grab; user-select:none; touch-action:none;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+    box-shadow: 0 6px 0 rgba(0,0,0,0.20), 0 12px 22px rgba(0,0,0,0.35);
+    transform: perspective(600px) rotateX(6deg);
+    transition: transform .15s ease, box-shadow .15s ease;
+    animation: bob 3.2s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce){ .word-card{ animation:none; } }
+  @keyframes bob{
+    0%,100%{ transform: perspective(600px) rotateX(6deg) translateY(0); }
+    50%{ transform: perspective(600px) rotateX(6deg) translateY(-6px); }
+  }
+  .word-card:hover{ box-shadow: 0 8px 0 rgba(0,0,0,0.20), 0 16px 28px rgba(0,0,0,0.4); }
+  .word-card.dragging{
+    animation:none; cursor:grabbing; transform: scale(1.12) rotate(-3deg);
+    box-shadow: 0 4px 0 rgba(0,0,0,0.2), 0 20px 34px rgba(0,0,0,0.5);
+  }
+  .word-card .emoji{ font-size:30px; line-height:1; }
+  .word-card .label{ font-family:'Poppins', sans-serif; font-weight:700; font-size:13px; letter-spacing:.02em; }
+
+  /* ---------- Fallback banner ---------- */
+  #fallback-banner{ position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:16; }
+
+  /* ---------- Instructions text panel ---------- */
+  #instructions-panel{ position:fixed; top:50%; left:50%; transform:translate(-50%,-56%); z-index:14; max-width:520px; width:88vw; }
+
+  /* ---------- All clear ---------- */
+  #screen-allclear{ z-index:30; }
+
+  /* scrollbar-less */
+  ::-webkit-scrollbar{ display:none; }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <div id="ambient-bg"></div>
+
+  <video id="webcam" playsinline muted class="hidden"></video>
+  <canvas id="overlay"></canvas>
+
+  <!-- ================= START SCREEN ================= -->
+  <div id="screen-start" class="screen">
+    <div class="glass glass-strong px-8 py-10 md:px-14 md:py-12 text-center" style="max-width:560px; width:90vw;">
+      <div class="text-5xl mb-3">🧩🖐️</div>
+      <h1 class="text-3xl md:text-4xl font-extrabold mb-2">AR เรียงประโยค</h1>
+      <p class="font-utility text-sm md:text-base opacity-80 mb-8">ใช้มือของคุณ &quot;จีบนิ้ว&quot; หยิบคำศัพท์ที่ลอยอยู่ มาเรียงให้เป็นประโยคภาษาอังกฤษที่ถูกต้อง</p>
+      <button id="btn-start" class="btn-primary font-utility text-lg px-10 py-4">เข้าสู่เกม (Start)</button>
+      <p class="font-utility text-xs opacity-60 mt-4">ต้องอนุญาตให้ใช้กล้อง — หากกล้องหรือ AI ใช้งานไม่ได้ ระบบจะสลับไปใช้เมาส์ให้อัตโนมัติ</p>
+    </div>
+  </div>
+
+  <!-- ================= TOP HUD (instructions + playing screens) ================= -->
+  <div id="hud-top" class="hidden">
+    <div id="hand-hud" class="glass px-4 py-2.5 flex items-center gap-2 font-utility text-xs md:text-sm">
+      <span class="dot"></span>
+      <span id="hand-status-text">กำลังหามือของคุณ...</span>
+    </div>
+    <div class="glass px-4 py-2.5 text-right font-utility text-xs md:text-sm">
+      <div id="level-badge">ด่าน 1/3</div>
+      <div id="score-badge" class="font-bold text-base" style="color:var(--accent)">0 คะแนน</div>
+    </div>
+  </div>
+
+  <div id="fallback-banner" class="hidden glass px-4 py-2 font-utility text-xs md:text-sm text-center">
+    📷 ไม่พบกล้องหรือ AI — สลับเป็นโหมดเมาส์ลากคำศัพท์แทน
+  </div>
+
+  <!-- ================= INSTRUCTIONS SCREEN ================= -->
+  <div id="screen-instructions" class="screen hidden">
+    <div id="instructions-panel" class="glass glass-strong px-7 py-8 font-utility text-sm md:text-base">
+      <h2 class="font-bold text-xl md:text-2xl mb-4 font-sans" style="font-family:'Kanit',sans-serif;">วิธีเล่น</h2>
+      <ul class="space-y-2 opacity-90 leading-relaxed">
+        <li>🤏 <b>จีบนิ้ว</b> (โป้งแตะนิ้วชี้) เหนือคำศัพท์ เพื่อ &quot;หยิบ&quot;</li>
+        <li>✋ <b>กางนิ้ว</b> เหนือช่องคำตอบ เพื่อ &quot;ปล่อย&quot; วางคำศัพท์</li>
+        <li>🖱️ หรือใช้เมาส์ / นิ้วสัมผัส คลิกลากคำศัพท์ได้เช่นกัน</li>
+        <li>🟢 กดปุ่มสีเขียวด้านล่างเพื่อเริ่มเกม</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ================= GAME SCREEN ================= -->
+  <div id="prompt-bar" class="hidden">
+    <div class="glass px-6 py-3">
+      <div class="font-utility text-[11px] opacity-70 mb-0.5">โจทย์</div>
+      <div id="prompt-th" class="text-xl md:text-2xl font-semibold">ฉัน รัก สุนัข</div>
+    </div>
+  </div>
+
+  <div id="slots-row" class="hidden"></div>
+  <div id="tray" class="hidden"></div>
+
+  <!-- ================= ALL CLEAR SCREEN ================= -->
+  <div id="screen-allclear" class="screen hidden">
+    <div class="glass glass-strong px-10 py-12 text-center" style="max-width:480px; width:88vw;">
+      <div class="text-5xl mb-3">🎉🐦☁️</div>
+      <h2 class="text-4xl font-extrabold mb-2">All Clear!</h2>
+      <p class="font-utility opacity-80 mb-1">คุณผ่านทั้ง 3 ด่านเรียบร้อยแล้ว</p>
+      <p class="font-utility text-2xl font-bold mb-8" style="color:var(--accent)">คะแนนรวม <span id="final-score">300</span></p>
+      <button id="btn-restart" class="btn-primary font-utility text-base px-8 py-3">เล่นอีกครั้ง</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* =====================================================================
+     LEVEL DATA
+  ===================================================================== */
+  const LEVELS = [
+    { th:'ฉัน รัก สุนัข', words:['I','love','dogs'],
+      emoji:{ I:'🙋', love:'❤️', dogs:'🐶' } },
+    { th:'แมว ตัวนั้น น่ารัก', words:['The','cat','is','cute'],
+      emoji:{ The:'🔖', cat:'🐱', is:'⚖️', cute:'🥰' } },
+    { th:'นก บิน อยู่ใน ท้องฟ้า', words:['Birds','fly','in','sky'],
+      emoji:{ Birds:'🐦', fly:'🕊️', in:'📥', sky:'🌤️' } },
+  ];
+  const POINTS_PER_LEVEL = 100;
+
+  /* =====================================================================
+     DOM REFS
+  ===================================================================== */
+  const $ = (id)=>document.getElementById(id);
+  const video = $('webcam');
+  const canvas = $('overlay');
+  const ctx = canvas.getContext('2d');
+
+  const screenStart = $('screen-start');
+  const screenInstructions = $('screen-instructions');
+  const screenAllClear = $('screen-allclear');
+  const hudTop = $('hud-top');
+  const promptBar = $('prompt-bar');
+  const slotsRow = $('slots-row');
+  const tray = $('tray');
+  const fallbackBanner = $('fallback-banner');
+  const handHud = $('hand-hud');
+  const handStatusText = $('hand-status-text');
+  const levelBadge = $('level-badge');
+  const scoreBadge = $('score-badge');
+  const promptTH = $('prompt-th');
+  const finalScoreEl = $('final-score');
+
+  const btnStart = $('btn-start');
+  const btnRestart = $('btn-restart');
+
+  /* =====================================================================
+     GLOBAL STATE
+  ===================================================================== */
+  let screenState = 'start';   // start | instructions | playing | allclear
+  let mode = 'pending';        // pending | hand | mouse
+  let hands = null;
+  let handDetected = false;
+  let pinching = false;
+  let wasPinching = false;
+  let handPointsScreen = null; // 21 {x,y} in CSS px
+  let cursor = { x:-9999, y:-9999, state:'idle' };
+  let cursorVisible = false;
+
+  let levelIdx = 0;
+  let score = 0;
+
+  const PINCH_ON = 46;
+  const PINCH_OFF = 66;
+
+  const HAND_CONNECTIONS = [
+    [0,1],[1,2],[2,3],[3,4],
+    [0,5],[5,6],[6,7],[7,8],
+    [5,9],[9,10],[10,11],[11,12],
+    [9,13],[13,14],[14,15],[15,16],
+    [13,17],[17,18],[18,19],[19,20],
+    [0,17]
+  ];
+
+  /* =====================================================================
+     AMBIENT BOKEH (decorative, once)
+  ===================================================================== */
+  (function spawnBokeh(){
+    const bg = $('ambient-bg');
+    const n = 10;
+    for(let i=0;i<n;i++){
+      const el = document.createElement('div');
+      el.className = 'bokeh';
+      const size = 40 + Math.random()*90;
+      el.style.width = size+'px';
+      el.style.height = size+'px';
+      el.style.left = (Math.random()*100)+'%';
+      el.style.top = (20+Math.random()*70)+'%';
+      el.style.opacity = (0.08 + Math.random()*0.14).toFixed(2);
+      el.style.animationDelay = (Math.random()*6).toFixed(2)+'s';
+      el.style.animationDuration = (10+Math.random()*10).toFixed(2)+'s';
+      bg.appendChild(el);
+    }
+  })();
+
+  /* =====================================================================
+     CANVAS SIZING (CSS-pixel coordinate space, matches getBoundingClientRect)
+  ===================================================================== */
+  function resizeCanvas(){
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(innerWidth * dpr);
+    canvas.height = Math.round(innerHeight * dpr);
+    canvas.style.width = innerWidth+'px';
+    canvas.style.height = innerHeight+'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  /* =====================================================================
+     SCREEN MANAGEMENT
+  ===================================================================== */
+  function showScreen(name){
+    screenState = name;
+    screenStart.classList.toggle('hidden', name!=='start');
+    screenInstructions.classList.toggle('hidden', name!=='instructions');
+    screenAllClear.classList.toggle('hidden', name!=='allclear');
+
+    hudTop.classList.toggle('hidden', !(name==='instructions' || name==='playing'));
+    promptBar.classList.toggle('hidden', name!=='playing');
+    slotsRow.classList.toggle('hidden', name!=='playing');
+    tray.classList.toggle('hidden', name!=='playing');
+
+    // The instructions-screen button lives on <canvas>; only let the canvas
+    // capture clicks while that screen is showing, so word-cards underneath
+    // remain clickable during gameplay.
+    canvas.style.pointerEvents = (name==='instructions') ? 'auto' : 'none';
+  }
+
+  /* =====================================================================
+     CAMERA + MEDIAPIPE HANDS SETUP (with graceful fallback)
+  ===================================================================== */
+  function videoToScreen(nx, ny){
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if(!vw || !vh) return { x: nx*innerWidth, y: ny*innerHeight };
+    // video is displayed with object-fit:cover -> compute crop/scale
+    const scale = Math.max(innerWidth/vw, innerHeight/vh);
+    const dispW = vw*scale, dispH = vh*scale;
+    const offX = (innerWidth-dispW)/2, offY = (innerHeight-dispH)/2;
+    // video element is mirrored (scaleX(-1)) for a natural selfie view,
+    // so flip x here to keep the cursor aligned with what's on screen.
+    const mirroredNx = 1 - nx;
+    return { x: offX + mirroredNx*dispW, y: offY + ny*dispH };
+  }
+
+  function onHandsResults(results){
+    const lm = results.multiHandLandmarks && results.multiHandLandmarks[0];
+    if(!lm){ handDetected = false; handPointsScreen = null; return; }
+    handDetected = true;
+    handPointsScreen = lm.map(p=>videoToScreen(p.x, p.y));
+
+    const thumb = handPointsScreen[4];
+    const index = handPointsScreen[8];
+    cursor.x = index.x;
+    cursor.y = index.y;
+
+    // Pythagorean distance between thumb tip and index tip
+    const dx = thumb.x - index.x;
+    const dy = thumb.y - index.y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+
+    if(dist < PINCH_ON) pinching = true;
+    else if(dist > PINCH_OFF) pinching = false;
+  }
+
+  async function setupHandsAndCamera(){
+    if(typeof Hands === 'undefined'){
+      throw new Error('mediapipe-script-failed-to-load');
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode:'user', width:{ideal:1280}, height:{ideal:720} },
+      audio:false
+    });
+    video.srcObject = stream;
+    video.classList.remove('hidden');
+
+    await new Promise((resolve, reject)=>{
+      const t = setTimeout(()=>reject(new Error('video-start-timeout')), 8000);
+      video.onloadedmetadata = ()=>{
+        video.play().then(()=>{ clearTimeout(t); resolve(); }).catch(reject);
+      };
+    });
+
+    hands = new Hands({
+      locateFile: (file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    hands.setOptions({
+      maxNumHands:1,
+      modelComplexity:1,
+      minDetectionConfidence:0.7,
+      minTrackingConfidence:0.6
+    });
+    hands.onResults(onHandsResults);
+
+    mode = 'hand';
+    detectLoop();
+  }
+
+  async function detectLoop(){
+    if(mode==='hand' && hands && video.readyState >= 2){
+      try{ await hands.send({ image: video }); } catch(e){ /* transient errors are fine */ }
+    }
+    requestAnimationFrame(detectLoop);
+  }
+
+  function enableMouseFallback(){
+    mode = 'mouse';
+    video.classList.add('hidden');
+    fallbackBanner.classList.remove('hidden');
+    setTimeout(()=>fallbackBanner.classList.add('hidden'), 4500);
+  }
+
+  /* =====================================================================
+     HIT-TESTING HELPERS (CSS-pixel rects, shared by mouse + hand-pinch input)
+  ===================================================================== */
+  function pointInRect(x, y, rect, pad){
+    pad = pad || 0;
+    return x>=rect.left-pad && x<=rect.right+pad && y>=rect.top-pad && y<=rect.bottom+pad;
+  }
+  const CARD_HIT_PAD = 12;
+  const SLOT_HIT_PAD = 22;
+  function findCardAt(x, y){
+    const cards = document.querySelectorAll('.word-card');
+    let found = null;
+    cards.forEach(c=>{
+      if(dragEngine.el===c) return;
+      if(pointInRect(x, y, c.getBoundingClientRect(), CARD_HIT_PAD)) found = c;
+    });
+    return found;
+  }
+  function findSlotAt(x, y){
+    const slots = slotsRow.querySelectorAll('.slot');
+    let found = null;
+    slots.forEach(s=>{ if(pointInRect(x, y, s.getBoundingClientRect(), SLOT_HIT_PAD)) found = s; });
+    return found;
+  }
+  function getInstructionsButtonRect(){
+    const w = Math.min(260, innerWidth*0.7);
+    const h = 68;
+    return { left: innerWidth/2 - w/2, top: innerHeight*0.78 - h/2, right: innerWidth/2 + w/2, bottom: innerHeight*0.78 + h/2, w, h };
+  }
+
+  /* =====================================================================
+     DRAG ENGINE — single core used by both mouse/touch pointer events
+     and by the hand-pinch (AR) input path.
+  ===================================================================== */
+  let hoverSlot = null;
+  function setHoverSlot(slot){
+    if(hoverSlot === slot) return;
+    if(hoverSlot){ hoverSlot.classList.remove('slot-hover','slot-invalid'); }
+    hoverSlot = slot;
+    if(hoverSlot){ hoverSlot.classList.add(hoverSlot.dataset.filled ? 'slot-invalid' : 'slot-hover'); }
+  }
+
+  const dragEngine = {
+    el: null,
+    grabDX: 0, grabDY: 0,
+    pick(cardEl){
+      if(this.el || !cardEl || gameLocked) return;
+      const parent = cardEl.parentElement;
+      if(parent && parent.classList.contains('slot')){
+        parent.dataset.filled = '';
+        parent.dataset.word = '';
+      }
+      const rect = cardEl.getBoundingClientRect();
+      this.grabDX = rect.width/2;
+      this.grabDY = rect.height/2;
+      this.el = cardEl;
+      document.body.appendChild(cardEl);
+      cardEl.classList.add('dragging');
+      cardEl.style.position = 'fixed';
+      cardEl.style.width = rect.width+'px';
+      cardEl.style.height = rect.height+'px';
+      cardEl.style.zIndex = 9999;
+      this.moveTo(rect.left+rect.width/2, rect.top+rect.height/2);
+    },
+    moveTo(x, y){
+      if(!this.el) return;
+      this.el.style.left = (x - this.grabDX)+'px';
+      this.el.style.top  = (y - this.grabDY)+'px';
+      setHoverSlot(findSlotAt(x, y));
+    },
+    release(x, y){
+      if(!this.el) return;
+      const card = this.el;
+      setHoverSlot(null);
+      const slot = findSlotAt(x, y);
+      if(slot && !slot.dataset.filled){
+        slot.appendChild(card);
+        slot.dataset.filled = '1';
+        slot.dataset.word = card.dataset.word;
+        card.classList.remove('dragging');
+        card.style.position = '';
+        card.style.left = '';
+        card.style.top = '';
+        card.style.width = '';
+        card.style.height = '';
+        card.style.zIndex = '';
+        this.el = null;
+        checkCompletion();
+      } else {
+        returnToTray(card);
+        this.el = null;
+      }
+    }
+  };
+
+  function returnToTray(cardEl){
+    tray.appendChild(cardEl);
+    cardEl.classList.remove('dragging');
+    cardEl.style.position = '';
+    cardEl.style.left = '';
+    cardEl.style.top = '';
+    cardEl.style.width = '';
+    cardEl.style.height = '';
+    cardEl.style.zIndex = '';
+  }
+
+  function wireCardPointerEvents(card){
+    card.addEventListener('pointerdown', (e)=>{
+      if(screenState!=='playing') return;
+      e.preventDefault();
+      dragEngine.pick(card);
+      try{ card.setPointerCapture(e.pointerId); }catch(err){}
+    });
+    card.addEventListener('pointermove', (e)=>{
+      if(dragEngine.el===card) dragEngine.moveTo(e.clientX, e.clientY);
+    });
+    const finish = (e)=>{ if(dragEngine.el===card) dragEngine.release(e.clientX, e.clientY); };
+    card.addEventListener('pointerup', finish);
+    card.addEventListener('pointercancel', finish);
+  }
+
+  /* =====================================================================
+     LEVEL BUILD / SCORING / COMPLETION
+  ===================================================================== */
+  let gameLocked = false;
+
+  function shuffle(arr){
+    const a = arr.slice();
+    for(let i=a.length-1;i>0;i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [a[i],a[j]] = [a[j],a[i]];
+    }
+    return a;
+  }
+
+  function buildLevel(idx){
+    levelIdx = idx;
+    gameLocked = false;
+    const lvl = LEVELS[idx];
+    promptTH.textContent = lvl.th;
+    levelBadge.textContent = `ด่าน ${idx+1}/${LEVELS.length}`;
+
+    slotsRow.innerHTML = '';
+    lvl.words.forEach(()=>{
+      const slot = document.createElement('div');
+      slot.className = 'slot glass';
+      slotsRow.appendChild(slot);
+    });
+
+    tray.innerHTML = '';
+    shuffle(lvl.words).forEach(w=>{
+      const card = document.createElement('div');
+      card.className = 'word-card glass';
+      card.dataset.word = w;
+      card.style.animationDelay = (Math.random()*2).toFixed(2)+'s';
+      card.innerHTML = `<span class="emoji">${lvl.emoji[w]}</span><span class="label">${w}</span>`;
+      wireCardPointerEvents(card);
+      tray.appendChild(card);
+    });
+  }
+
+  function updateScoreUI(){
+    scoreBadge.textContent = `${score} คะแนน`;
+  }
+
+  function checkCompletion(){
+    const slots = [...slotsRow.querySelectorAll('.slot')];
+    if(slots.some(s=>!s.dataset.filled)) return;
+    const current = slots.map(s=>s.dataset.word);
+    const target = LEVELS[levelIdx].words;
+    const correct = current.length===target.length && current.every((w,i)=>w===target[i]);
+    if(correct) onLevelSuccess();
+    else onLevelMistake();
+  }
+
+  function onLevelMistake(){
+    promptBar.classList.add('shake');
+    setTimeout(()=>promptBar.classList.remove('shake'), 380);
+  }
+
+  function onLevelSuccess(){
+    gameLocked = true;
+    score += POINTS_PER_LEVEL;
+    updateScoreUI();
+    scoreBadge.style.transform = 'scale(1.25)';
+    setTimeout(()=>{ scoreBadge.style.transform = ''; }, 350);
+    setTimeout(()=>{
+      if(levelIdx+1 < LEVELS.length){
+        buildLevel(levelIdx+1);
+      } else {
+        finalScoreEl.textContent = score;
+        showScreen('allclear');
+      }
+    }, 1000);
+  }
+
+  /* =====================================================================
+     HAND-DRIVEN INTERACTION (pinch edges -> drag engine / buttons)
+  ===================================================================== */
+  function updateHandInteraction(){
+    if(mode!=='hand' || !handDetected){
+      cursorVisible = false;
+      wasPinching = pinching;
+      return;
+    }
+    cursorVisible = true;
+
+    let overTarget = false;
+    if(screenState==='instructions'){
+      overTarget = pointInRect(cursor.x, cursor.y, getInstructionsButtonRect());
+    } else if(screenState==='playing' && !gameLocked){
+      overTarget = dragEngine.el
+        ? !!findSlotAt(cursor.x, cursor.y)
+        : !!findCardAt(cursor.x, cursor.y);
+    }
+
+    cursor.state = pinching ? (overTarget ? 'success' : 'miss') : (overTarget ? 'hover' : 'idle');
+
+    if(pinching && !wasPinching){
+      // rising edge — attempt pick / press
+      if(screenState==='instructions' && overTarget){
+        goToPlaying();
+      } else if(screenState==='playing' && !dragEngine.el && !gameLocked){
+        const card = findCardAt(cursor.x, cursor.y);
+        if(card) dragEngine.pick(card);
+      }
+    }
+    if(pinching && dragEngine.el){
+      dragEngine.moveTo(cursor.x, cursor.y);
+    }
+    if(!pinching && wasPinching && dragEngine.el){
+      dragEngine.release(cursor.x, cursor.y);
+    }
+    wasPinching = pinching;
+  }
+
+  function updateHandStatusUI(){
+    handHud.classList.toggle('pinching', mode==='hand' && pinching);
+    if(mode!=='hand'){ handStatusText.textContent = 'โหมดเมาส์ 🖱️'; return; }
+    if(!handDetected){ handStatusText.textContent = 'กำลังหามือของคุณ...'; return; }
+    handStatusText.textContent = pinching ? 'จีบนิ้วอยู่ 🤏' : 'พบมือแล้ว ✋';
+  }
+
+  /* =====================================================================
+     DRAW LOOP — runs independently via requestAnimationFrame,
+     decoupled from the MediaPipe onResults callback.
+  ===================================================================== */
+  function drawSkeleton(pts){
+    ctx.save();
+    ctx.strokeStyle = 'rgba(52,229,184,0.85)';
+    ctx.lineWidth = 3;
+    HAND_CONNECTIONS.forEach(([a,b])=>{
+      ctx.beginPath();
+      ctx.moveTo(pts[a].x, pts[a].y);
+      ctx.lineTo(pts[b].x, pts[b].y);
+      ctx.stroke();
+    });
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    pts.forEach(p=>{ ctx.beginPath(); ctx.arc(p.x, p.y, 3.5, 0, Math.PI*2); ctx.fill(); });
+    ctx.restore();
+  }
+
+  function drawCursor(){
+    const resolved = { idle:'#3B9EFF', hover:'#FACC15', miss:'#EF4444', success:'#22C55E' };
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cursor.x, cursor.y, 22, 0, Math.PI*2);
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = resolved[cursor.state] || resolved.idle;
+    ctx.setLineDash(cursor.state==='hover' ? [6,6] : []);
+    ctx.stroke();
+    if(cursor.state==='success'){
+      ctx.font = '18px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('✔️', cursor.x, cursor.y);
+    }
+    ctx.restore();
+  }
+
+  function drawInstructionsButton(){
+    const r = getInstructionsButtonRect();
+    const t = performance.now()/500;
+    const pulse = 1 + Math.sin(t)*0.02;
+    const cx = (r.left+r.right)/2, cy = (r.top+r.bottom)/2;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(pulse, pulse);
+    ctx.translate(-cx, -cy);
+
+    const grad = ctx.createLinearGradient(r.left, r.top, r.left, r.bottom);
+    grad.addColorStop(0, '#34E5B8');
+    grad.addColorStop(1, '#17B98F');
+    ctx.fillStyle = grad;
+    roundRect(r.left, r.top, r.w, r.h, r.h/2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 2;
+    roundRect(r.left, r.top, r.w, r.h, r.h/2);
+    ctx.stroke();
+
+    ctx.fillStyle = '#0A2E24';
+    ctx.font = '700 22px Kanit, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('เริ่มเกม!', cx, cy+1);
+    ctx.restore();
+  }
+  function roundRect(x,y,w,h,rad){
+    ctx.beginPath();
+    ctx.moveTo(x+rad, y);
+    ctx.arcTo(x+w, y, x+w, y+h, rad);
+    ctx.arcTo(x+w, y+h, x, y+h, rad);
+    ctx.arcTo(x, y+h, x, y, rad);
+    ctx.arcTo(x, y, x+w, y, rad);
+    ctx.closePath();
+  }
+
+  function drawLoop(){
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+
+    if(mode==='hand'){
+      updateHandInteraction();
+      if(handDetected && handPointsScreen) drawSkeleton(handPointsScreen);
+      if(cursorVisible) drawCursor();
+    }
+    if(screenState==='instructions'){
+      drawInstructionsButton();
+    }
+    updateHandStatusUI();
+
+    requestAnimationFrame(drawLoop);
+  }
+  requestAnimationFrame(drawLoop);
+
+  /* =====================================================================
+     SCREEN TRANSITIONS / WIRING
+  ===================================================================== */
+  function goToPlaying(){
+    showScreen('playing');
+    score = 0;
+    updateScoreUI();
+    buildLevel(0);
+  }
+
+  // Mouse/touch click on the instructions canvas button (canvas gets
+  // pointer-events:auto only while this screen is active).
+  canvas.addEventListener('click', (e)=>{
+    if(screenState==='instructions' && pointInRect(e.clientX, e.clientY, getInstructionsButtonRect())){
+      goToPlaying();
+    }
+  });
+
+  btnStart.addEventListener('click', async ()=>{
+    btnStart.disabled = true;
+    btnStart.textContent = 'กำลังเปิดกล้อง...';
+    try{
+      await setupHandsAndCamera();
+    } catch(err){
+      console.warn('Camera/AI unavailable, using mouse fallback:', err);
+      enableMouseFallback();
+    }
+    showScreen('instructions');
+  });
+
+  btnRestart.addEventListener('click', ()=>{
+    score = 0;
+    updateScoreUI();
+    showScreen('instructions');
+  });
+
+  showScreen('start');
+})();
+</script>
+</body>
+</html>
+  #hand-hud .dot{ width:9px; height:9px; border-radius:50%; background:var(--cursor-idle); box-shadow:0 0 8px var(--cursor-idle); }
+  #hand-hud.pinching .dot{ background:var(--cursor-success); box-shadow:0 0 10px var(--cursor-success); }
+  #score-badge{ transition: transform .2s ease; display:inline-block; }
+
+  /* ---------- Prompt bar ---------- */
+  #prompt-bar{
+    position:fixed; top:78px; left:50%; transform:translateX(-50%); z-index:15;
+    text-align:center; max-width:92vw;
+  }
+  #prompt-bar.shake{ animation: shake .35s ease; }
+  @keyframes shake{
+    0%,100%{ transform:translateX(-50%); }
+    25%{ transform:translateX(calc(-50% - 8px)); }
+    75%{ transform:translateX(calc(-50% + 8px)); }
+  }
+
+  /* ---------- Slots ---------- */
+  #slots-row{ position:fixed; top:150px; left:50%; transform:translateX(-50%); z-index:15; display:flex; gap:10px; flex-wrap:wrap; justify-content:center; max-width:94vw; }
+  .slot{
+    min-width:96px; height:96px; display:flex; align-items:center; justify-content:center;
+    border:2.5px dashed rgba(255,255,255,0.35); border-radius:18px;
+    background:rgba(255,255,255,0.06);
     transition: border-color .15s, background .15s;
   }
   .slot[data-filled="1"]{ border-style:solid; border-color:var(--accent); background:rgba(52,229,184,0.10); }
